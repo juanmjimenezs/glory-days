@@ -14,10 +14,14 @@ import Speech
 
 private let reuseIdentifier = "Cell"
 
-class MemoriesCollectionViewController: UICollectionViewController {
+class MemoriesCollectionViewController: UICollectionViewController, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
 
+    var memories: [URL] = []
+    
     override func viewDidLoad() {
         super.viewDidLoad()
+        
+        self.loadMemories()
 
         // Uncomment the following line to preserve selection between presentations
         // self.clearsSelectionOnViewWillAppear = false
@@ -53,6 +57,36 @@ class MemoriesCollectionViewController: UICollectionViewController {
                 navigationController?.present(termsVc, animated: true, completion: nil)
             }
         }
+    }
+    
+    func loadMemories() {
+        self.memories.removeAll()
+        
+        //El guard es como un if pero solo con el 'else' y de esta forma segura podemos intentar obtener los archivos del directorio
+        guard let files = try? FileManager.default.contentsOfDirectory(at: self.getDocumentsDirectory(), includingPropertiesForKeys: nil, options: []) else {
+            return //En caso de encontrar error se sale de la función
+        }
+        //Si todo ha salido bien con el guard...
+        for file in files {
+            //Intenta obtener el nombre del archivo pero si no lo consigue no pasa nada
+            //guard let fileName = file.lastPathComponent else {continue}
+            let fileName = file.lastPathComponent
+            
+            if fileName.hasSuffix(".thumb") {
+                let noExtension = fileName.replacingOccurrences(of: ".thumb", with: "")
+                
+                let memoryPath = self.getDocumentsDirectory().appendingPathComponent(noExtension)
+                memories.append(memoryPath)
+            }
+        }
+        
+        self.collectionView?.reloadSections(IndexSet(integer: 1))
+    }
+    
+    func getDocumentsDirectory() -> URL {
+        let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
+        
+        return paths[0]
     }
 
     /*
