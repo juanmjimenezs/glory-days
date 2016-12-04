@@ -12,7 +12,7 @@ import AVFoundation
 import Photos
 import Speech
 
-private let reuseIdentifier = "Cell"
+private let reuseIdentifier = "cell"
 
 class MemoriesCollectionViewController: UICollectionViewController, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
 
@@ -22,6 +22,8 @@ class MemoriesCollectionViewController: UICollectionViewController, UIImagePicke
         super.viewDidLoad()
         
         self.loadMemories()
+        
+        navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .add, target: self, action: #selector(self.addImagePressed))
 
         // Uncomment the following line to preserve selection between presentations
         // self.clearsSelectionOnViewWillAppear = false
@@ -59,6 +61,9 @@ class MemoriesCollectionViewController: UICollectionViewController, UIImagePicke
         }
     }
     
+    /**
+     Limpiamos primero el arreglo y luego lo rellenamos con las fotos que encuentre en el directorio.
+     */
     func loadMemories() {
         self.memories.removeAll()
         
@@ -83,10 +88,92 @@ class MemoriesCollectionViewController: UICollectionViewController, UIImagePicke
         self.collectionView?.reloadSections(IndexSet(integer: 1))
     }
     
+    /**
+     Obtenemos la ruta donde guardaremos las imagenes
+     */
     func getDocumentsDirectory() -> URL {
         let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
         
         return paths[0]
+    }
+    
+    /**
+     Nos permite lanzar la pantalla que permite agregar la imagen.
+     */
+    func addImagePressed() {
+        let vc = UIImagePickerController()
+        vc.modalPresentationStyle = .formSheet
+        vc.delegate = self
+        navigationController?.present(vc, animated: true, completion: nil)
+    }
+    
+    /**
+     Aquí obtenemos la imagen seleccionada
+     */
+    func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [String : Any]) {
+        if let theImage = info[UIImagePickerControllerOriginalImage] as? UIImage {
+            self.addNewMemory(image: theImage)
+            self.loadMemories()
+            
+            //Con esta linea hacemos que se cierre la pantalla donde selecionamos la imagen
+            dismiss(animated: true, completion: nil)
+        }
+    }
+    
+    func addNewMemory(image: UIImage) {
+        let memoryName = "memory-\(Date().timeIntervalSince1970)"
+        
+        let imageName = "\(memoryName).jpg"
+        let thumbName = "\(memoryName).thumb"
+        
+        do {
+            let imagePath = getDocumentsDirectory().appendingPathComponent(imageName)
+            
+            if let jpegData = UIImageJPEGRepresentation(image, 80) {
+                try jpegData.write(to: imagePath, options: [.atomic])
+            }
+            
+            if let thumbnail = resizeImage(image: image, to: 200) {
+                let thumbPath = getDocumentsDirectory().appendingPathComponent(thumbName)
+                
+                if let jpegData = UIImageJPEGRepresentation(thumbnail, 80) {
+                    try jpegData.write(to: thumbPath, options: [.atomic])
+                }
+            }
+        } catch {
+            print("Ha fallado la escritura en disco")
+        }
+    }
+    
+    /**
+     Aquí se redimensiona la imagen original para obtener el thumb
+     */
+    func resizeImage(image: UIImage, to width: CGFloat) -> UIImage? {
+        let scaleFactor = width / image.size.width
+        let height = image.size.height * scaleFactor
+        
+        UIGraphicsBeginImageContextWithOptions(CGSize(width: width, height: height), false, 0)
+        image.draw(in: CGRect(x: 0, y: 0, width: width, height: height))
+        let newImage = UIGraphicsGetImageFromCurrentImageContext()
+        UIGraphicsEndImageContext()
+        
+        return newImage
+    }
+    
+    func imageUrl(for memory: URL) -> URL {
+        return memory.appendingPathExtension("jpg")
+    }
+    
+    func thumbUrl(for memory: URL) -> URL {
+        return memory.appendingPathExtension("thumb")
+    }
+    
+    func audioUrl(for memory: URL) -> URL {
+        return memory.appendingPathExtension("m4a")
+    }
+    
+    func transcriptionUrl(for memory: URL) -> URL {
+        return memory.appendingPathExtension("txt")
     }
 
     /*
@@ -103,21 +190,46 @@ class MemoriesCollectionViewController: UICollectionViewController, UIImagePicke
 
     override func numberOfSections(in collectionView: UICollectionView) -> Int {
         // #warning Incomplete implementation, return the number of sections
-        return 0
+        return 2
     }
 
 
     override func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
         // #warning Incomplete implementation, return the number of items
-        return 0
+        if section == 0 {
+            return 0//Como es el header entonces tiene cero filas
+        } else {
+            return self.memories.count
+        }
     }
 
     override func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: reuseIdentifier, for: indexPath)
+        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: reuseIdentifier, for: indexPath) as! MemoryCell
     
         // Configure the cell
+        let memory = self.memories[indexPath.row]
+        let memoryName = self.thumbUrl(for: memory).path
+        let image = UIImage(contentsOfFile: memoryName)
+        cell.imageView.image = image
     
         return cell
+    }
+    
+    /**
+     Este metodo es necesario para configurar correctamente el header
+     */
+    override func collectionView(_ collectionView: UICollectionView, viewForSupplementaryElementOfKind kind: String, at indexPath: IndexPath) -> UICollectionReusableView {
+        let header = collectionView.dequeueReusableSupplementaryView(ofKind: kind, withReuseIdentifier: "header", for: indexPath)
+        
+        return header
+    }
+    
+    func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, referenceSizeForHeaderInSection section: Int) ->CGSize {
+        if section == 0 {
+            return CGSize(width: 0, height: 50)
+        } else {
+            return CGSize.zero
+        }
     }
 
     // MARK: UICollectionViewDelegate
