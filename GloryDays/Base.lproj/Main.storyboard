@@ -106,7 +106,7 @@
                                     <textInputTraits key="textInputTraits"/>
                                     <userDefinedRuntimeAttributes>
                                         <userDefinedRuntimeAttribute type="color" keyPath="searchField.textColor">
-                                            <color key="value" red="0.30999742304990496" green="0.93525340025906734" blue="0.31281099278481755" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                                            <color key="value" red="0.9159447862694301" green="0.9159447862694301" blue="0.9159447862694301" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                                         </userDefinedRuntimeAttribute>
                                     </userDefinedRuntimeAttributes>
                                     <connections>
