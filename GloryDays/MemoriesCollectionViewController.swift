@@ -14,12 +14,20 @@ import Speech
 
 private let reuseIdentifier = "cell"
 
-class MemoriesCollectionViewController: UICollectionViewController, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+class MemoriesCollectionViewController: UICollectionViewController, UIImagePickerControllerDelegate, UINavigationControllerDelegate, AVAudioRecorderDelegate {
 
     var memories: [URL] = []
+    var currentMemory: URL!
+    
+    var audioPlayer: AVAudioPlayer?
+    var audioRecorder: AVAudioRecorder?
+    var recordingURL: URL!
     
     override func viewDidLoad() {
         super.viewDidLoad()
+        
+        //Archivo donde almacenamos temporalmente el audio
+        self.recordingURL = getDocumentsDirectory().appendingPathComponent("memory-recording.m4a")
         
         self.loadMemories()
         
@@ -29,7 +37,7 @@ class MemoriesCollectionViewController: UICollectionViewController, UIImagePicke
         // self.clearsSelectionOnViewWillAppear = false
 
         // Register cell classes
-        self.collectionView!.register(UICollectionViewCell.self, forCellWithReuseIdentifier: reuseIdentifier)
+        //self.collectionView!.register(UICollectionViewCell.self, forCellWithReuseIdentifier: reuseIdentifier)
 
         // Do any additional setup after loading the view.
     }
@@ -203,6 +211,9 @@ class MemoriesCollectionViewController: UICollectionViewController, UIImagePicke
         }
     }
 
+    /**
+     Cargamos en cada celda una image, agregamos el gesto de presionar sostenido y le mejoramos un poco el aspecto visual a cada celda
+     */
     override func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         let cell = collectionView.dequeueReusableCell(withReuseIdentifier: reuseIdentifier, for: indexPath) as! MemoryCell
     
@@ -211,11 +222,136 @@ class MemoriesCollectionViewController: UICollectionViewController, UIImagePicke
         let memoryName = self.thumbUrl(for: memory).path
         let image = UIImage(contentsOfFile: memoryName)
         cell.imageView.image = image
+        
+        //Como las celdas son reusadas, entonces validamos que todavía no tenga el reconocimiento de gestos 
+        //para no estar asignando estas configuraciones una y otra vez
+        if cell.gestureRecognizers == nil {
+            let recognizer = UILongPressGestureRecognizer(target: self, action: #selector(self.memoryLongPressed(sender:)))
+            recognizer.minimumPressDuration = 0.3
+            cell.addGestureRecognizer(recognizer)
+            
+            cell.layer.borderColor = UIColor.white.cgColor
+            cell.layer.borderWidth = 4
+            cell.layer.cornerRadius = 10
+        }
     
         return cell
     }
     
     /**
+     Esta es la función que se ejecuta cuando presionamos de forma sostenida una celda
+     */
+    func memoryLongPressed(sender: UILongPressGestureRecognizer) {
+        //Cuando inicia el toque sostenido
+        if sender.state == .began {
+            let cell = sender.view as! MemoryCell//Sabemos que la vista sobre la que se está presionando es una MemoryCell
+            
+            if let index = collectionView?.indexPath(for: cell) {
+                self.currentMemory = self.memories[index.row]//Obtenemos la información de la celda
+                //iniciamos grabación
+                self.startRecordingMemory()
+            }
+        }
+        //Cuando finaliza el toque sostenido
+        if sender.state == .ended {
+            self.finishRecordingMemory(success: true)
+        }
+    }
+    
+    /**
+     Cuando inicia el toque sostenido...
+     */
+    func startRecordingMemory() {
+        self.audioPlayer?.stop()
+        
+        collectionView?.backgroundColor = #colorLiteral(red: 0.9254902005, green: 0.2352941185, blue: 0.1019607857, alpha: 1)
+        
+        let recordingSession = AVAudioSession.sharedInstance()
+        
+        do {
+            try recordingSession.setCategory(AVAudioSessionCategoryPlayAndRecord, with: .defaultToSpeaker)
+            try recordingSession.setActive(true)
+            
+            let recordingSetings = [
+                AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+                AVSampleRateKey: 44100,
+                AVNumberOfChannelsKey: 2,
+                AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
+            ]
+            
+            self.audioRecorder = try AVAudioRecorder(url: self.recordingURL, settings: recordingSetings)
+            self.audioRecorder?.delegate = self
+            self.audioRecorder?.record()
+        } catch let error {
+            print(error)
+            self.finishRecordingMemory(success: false)
+        }
+    }
+    
+    /*
+     Cuando finaliza la grabación y finaliza por algún motivo diferente de levantar el dedo de la celda,
+     debemos llamar a finishRecordingMemory() para que realice los pasos que se requieren al finalizar.
+     */
+    func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
+        if !flag {
+            self.finishRecordingMemory(success: false)
+        }
+    }
+    
+    /**
+     Cuando finaliza el toque sostenido...
+     */
+    func finishRecordingMemory(success: Bool) {
+        collectionView?.backgroundColor = #colorLiteral(red: 0.2549019754, green: 0.2745098174, blue: 0.3019607961, alpha: 1)
+        audioRecorder?.stop()
+        
+        if success {
+            do {
+                let memoryAudioURL = self.currentMemory.appendingPathExtension("m4a")
+                let fileManager = FileManager.default
+                
+                if fileManager.fileExists(atPath: memoryAudioURL.path) {
+                    try fileManager.removeItem(at: memoryAudioURL)
+                }
+                
+                try fileManager.moveItem(at: self.recordingURL, to: memoryAudioURL)
+                
+                self.transcribeAudioToText(memory: self.currentMemory)
+            } catch let error {
+                print(error)
+            }
+        }
+    }
+    
+    /**
+     Aquí convertimos el audio en texto
+     */
+    func transcribeAudioToText(memory: URL) {
+        let audio = self.audioUrl(for: memory)
+        let transcription = self.transcriptionUrl(for: memory)
+        
+        let recognizer = SFSpeechRecognizer()
+        let request = SFSpeechURLRecognitionRequest(url: audio)
+        
+        recognizer?.recognitionTask(with: request, resultHandler: { [unowned self] (result, error) in
+            guard let result = result else {
+                print("Ha habido el siguiente error: \(error)")
+                return
+            }
+            
+            if result.isFinal {
+                let text = result.bestTranscription.formattedString
+                
+                do {
+                    try text.write(to: transcription, atomically: true, encoding: String.Encoding.utf8)
+                } catch {
+                    print("Ha habido un error al guardar la transcripción")
+                }
+            }
+        })
+    }
+    
+    /*
      Este metodo es necesario para configurar correctamente el header
      */
     override func collectionView(_ collectionView: UICollectionView, viewForSupplementaryElementOfKind kind: String, at indexPath: IndexPath) -> UICollectionReusableView {
@@ -229,6 +365,31 @@ class MemoriesCollectionViewController: UICollectionViewController, UIImagePicke
             return CGSize(width: 0, height: 50)
         } else {
             return CGSize.zero
+        }
+    }
+    
+    /**
+     Cuando hacemos un toque corto sobre la celda...
+     */
+    override func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        let memory = self.memories[indexPath.row]
+        let fileManager = FileManager.default
+        
+        do {
+            let audioName = self.audioUrl(for: memory)
+            let transcriptionName = self.transcriptionUrl(for: memory)
+            
+            if fileManager.fileExists(atPath: audioName.path) {
+                self.audioPlayer = try AVAudioPlayer(contentsOf: audioName)
+                self.audioPlayer?.play()
+            }
+            
+            if fileManager.fileExists(atPath: transcriptionName.path) {
+                let contents = try String(contentsOf: transcriptionName)
+                print(contents)
+            }
+        } catch {
+            print("Error al cargar el audio para reproducir")
         }
     }
 
